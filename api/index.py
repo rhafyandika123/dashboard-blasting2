@@ -95,6 +95,7 @@ HTML_TEMPLATE = """
                         </button>
                         <span id="sendStatus" class="text-sm text-slate-500 hidden"></span>
                     </div>
+                    <p id="providerHint" class="text-xs text-amber-600 hidden">Mode Mock aktif: pesan hanya disimulasikan. Aktifkan provider di tab Pengaturan untuk mengirim pesan nyata.</p>
                 </form>
             </div>
 
@@ -301,9 +302,17 @@ HTML_TEMPLATE = """
             document.getElementById('resultCard').classList.remove('hidden');
             document.getElementById('summaryText').textContent = `Total Target Terkirim: ${data.total_sent} Penerima | Provider: ${data.provider || 'mock'}`;
             const area = document.getElementById('resultArea');
-            area.innerHTML = '<div class="overflow-x-auto"><table class="w-full text-sm text-left text-slate-600"><thead class="text-xs uppercase bg-slate-50 text-slate-700 border-b"><tr><th class="py-3 px-4">Nama</th><th class="py-3 px-4">Kategori</th><th class="py-3 px-4">Kontak</th><th class="py-3 px-4">Pesan Terkirim</th><th class="py-3 px-4">Status</th></tr></thead><tbody class="divide-y divide-slate-100">' + data.details.map(item => {
+            const failedCount = (data.details || []).filter(item => item.status === 'Failed').length;
+            const mockCount = (data.details || []).filter(item => item.status === 'Mock').length;
+            let summary = data.details ? `${data.total_sent} target, ${failedCount} gagal` : '0 target';
+            if (mockCount) summary += ` (${mockCount} mock, belum benar-benar terkirim)`;
+            if (data.provider === 'mock' && data.total_sent > 0) summary += ' | Mode Mock aktif';
+            document.getElementById('summaryText').textContent = summary;
+            area.innerHTML = '<div class="overflow-x-auto"><table class="w-full text-sm text-left text-slate-600"><thead class="text-xs uppercase bg-slate-50 text-slate-700 border-b"><tr><th class="py-3 px-4">Nama</th><th class="py-3 px-4">Kategori</th><th class="py-3 px-4">Kontak</th><th class="py-3 px-4">Pesan Terkirim</th><th class="py-3 px-4">Status</th><th class="py-3 px-4">Info</th></tr></thead><tbody class="divide-y divide-slate-100">' + (data.details || []).map(item => {
                 const badgeClass = item.kategori === 'High Potential' ? 'bg-red-100 text-red-700' : item.kategori === 'Medium Potential' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600';
-                return `<tr class="hover:bg-slate-50"><td class="py-3 px-4 font-medium text-slate-800">${escapeHtml(item.nama)}</td><td class="py-3 px-4"><span class="px-2 py-1 text-xs rounded-md ${badgeClass}">${escapeHtml(item.kategori)}</span></td><td class="py-3 px-4">${escapeHtml(item.kontak)}</td><td class="py-3 px-4 italic text-slate-500">${escapeHtml(item.pesan_terkirim)}</td><td class="py-3 px-4"><span class="text-emerald-600 font-semibold">${escapeHtml(item.status)}</span></td></tr>`;
+                const statusClass = item.status === 'Sent' ? 'text-emerald-600' : item.status === 'Mock' ? 'text-amber-600' : 'text-red-600';
+                const infoText = item.error || item.provider || '';
+                return `<tr class="hover:bg-slate-50"><td class="py-3 px-4 font-medium text-slate-800">${escapeHtml(item.nama)}</td><td class="py-3 px-4"><span class="px-2 py-1 text-xs rounded-md ${badgeClass}">${escapeHtml(item.kategori)}</span></td><td class="py-3 px-4">${escapeHtml(item.kontak)}</td><td class="py-3 px-4 italic text-slate-500">${escapeHtml(item.pesan_terkirim)}</td><td class="py-3 px-4"><span class="${statusClass} font-semibold">${escapeHtml(item.status)}</span></td><td class="py-3 px-4 text-xs">${escapeHtml(infoText)}</td></tr>`;
             }).join('') + '</tbody></table></div>';
         });
 
@@ -350,6 +359,18 @@ HTML_TEMPLATE = """
             await loadRecipients();
         }
 
+        document.getElementById('addRecipientForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nama = document.getElementById('nama').value.trim();
+            const kontak = document.getElementById('kontak').value.trim();
+            if (!nama || !kontak) { alert('Nama dan Nomor WhatsApp wajib diisi.'); return; }
+            if (!/^\+?\d{10,15}$/.test(kontak.replace(/\s/g, ''))) { alert('Format nomor WhatsApp tidak valid. Contoh: 6281234567890'); return; }
+            const payload = { nama, kontak };
+            const res = await fetch('/api/recipients/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (res.ok) { document.getElementById('addRecipientForm').reset(); await loadRecipients(); await loadRecipientPicker(); alert('Penerima berhasil ditambahkan.'); }
+            else { alert('Gagal menambah penerima.'); }
+        });
+
         async function syncFromGoogleSheet() {
             if (!confirm('Sync data dari Google Sheet? Data lama akan diganti.')) return;
             const statusEl = document.getElementById('sendStatus');
@@ -394,6 +415,16 @@ HTML_TEMPLATE = """
             const label = document.querySelector('#apiKeyField label');
             if (provider === 'mock') { label.textContent = 'API Key / Token (tidak diperlukan)'; }
             else { label.textContent = 'API Key / Token'; }
+            const hint = document.getElementById('providerHint');
+            if (hint) { hint.classList.toggle('hidden', provider !== 'mock'); }
+        }
+
+        async function checkProviderMode() {
+            const res = await fetch('/api/settings');
+            const data = await res.json();
+            const provider = (data.settings || {}).provider || 'mock';
+            const hint = document.getElementById('providerHint');
+            if (hint) { hint.classList.toggle('hidden', provider !== 'mock'); }
         }
 
         (function init() { loadRecipients(); loadHistory(); loadSettings(); loadRecipientPicker(); })();
@@ -741,6 +772,9 @@ def send_blast():
         for key in ['nama', 'region', 'kategori', 'kontak', 'id', 'sme_opportunity_score']:
             pesan_personal = pesan_personal.replace("{" + key + "}", p.get(key, ''))
         result = send_message_via_provider(provider, pesan_personal, p['kontak'], api_key, sender_number)
+        status = result.get('status', 'failed').capitalize()
+        if status == 'Sent' and provider == 'mock':
+            status = 'Mock'
         target_penerima.append({
             "id": p['id'],
             "nama": p['nama'],
@@ -749,7 +783,8 @@ def send_blast():
             "kategori": p.get('kategori', ''),
             "sme_opportunity_score": p.get('sme_opportunity_score', ''),
             "pesan_terkirim": pesan_personal,
-            "status": result.get('status', 'failed').capitalize(),
+            "status": status,
+            "error": result.get('error', ''),
             "provider": result.get('provider', provider)
         })
 
