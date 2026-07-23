@@ -1,28 +1,24 @@
 from flask import Flask, render_template_string, request, jsonify
-import json
 
 app = Flask(__name__)
 
-# Template HTML Dashboard dengan Tailwind CSS
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Blasting Filtered</title>
+    <title>Dashboard Blasting Target</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-100 min-h-screen p-8">
     <div class="max-w-5xl mx-auto space-y-6">
         
-        <!-- Header -->
         <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <h1 class="text-2xl font-bold text-slate-800">🚀 Dashboard Blasting Target</h1>
             <p class="text-slate-500 text-sm mt-1">Kirim pesan terpersonalisasi berdasarkan filter kriteria tiap penerima.</p>
         </div>
 
-        <!-- Form Blasting -->
         <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <h2 class="text-lg font-semibold text-slate-700 mb-4">1. Buat Kampanye Blasting</h2>
             <form id="blastingForm" class="space-y-4">
@@ -56,7 +52,6 @@ HTML_TEMPLATE = """
             </form>
         </div>
 
-        <!-- Status Hasil Blasting -->
         <div id="resultCard" class="hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <h2 class="text-lg font-semibold text-slate-700 mb-3">2. Laporan Hasil Pengiriman</h2>
             <div id="summaryText" class="text-sm font-medium text-slate-600 mb-4"></div>
@@ -96,7 +91,6 @@ HTML_TEMPLATE = """
 
             const data = await response.json();
             
-            // Render Hasil
             document.getElementById('resultCard').classList.remove('hidden');
             document.getElementById('summaryText').innerText = `Total Target Terfilter: ${data.total_sent} Penerima`;
 
@@ -119,7 +113,6 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# Dummy Database Penerima dengan atribut filter masing-masing
 DATABASE_PENERIMA = [
     {"id": 1, "nama": "Andi Pratama", "region": "Jakarta", "kategori": "VIP", "kontak": "08123456789"},
     {"id": 2, "nama": "Budi Santoso", "region": "Bandung", "kategori": "Regular", "kontak": "08234567890"},
@@ -134,22 +127,18 @@ def home():
 
 @app.route('/api/blast', methods=['POST'])
 def send_blast():
-    data = request.json
+    data = request.json or {}
     filter_region = data.get('region', 'ALL')
     filter_kategori = data.get('kategori', 'ALL')
     pesan_template = data.get('pesan', '')
 
-    # Filter Penerima berdasarkan Kriteria
     target_penerima = []
     for p in DATABASE_PENERIMA:
         match_region = (filter_region == 'ALL' or p['region'] == filter_region)
         match_kategori = (filter_kategori == 'ALL' or p['kategori'] == filter_kategori)
 
         if match_region and match_kategori:
-            # Personalisasi pesan per penerima
             pesan_personal = pesan_template.replace("{nama}", p['nama'])
-            
-            # (Di sini tempat Anda menambahkan logika integrasi WhatsApp API / Email Provider)
             
             target_penerima.append({
                 "nama": p['nama'],
@@ -165,9 +154,8 @@ def send_blast():
         "details": target_penerima
     })
 
-# Handler khusus Vercel Serverless
-def handler(request, start_response):
-    return app(request, start_response)
+# PENTING: Ekspor variabel app secara eksplisit untuk Vercel Serverless
+app = app
 
 if __name__ == '__main__':
     app.run(debug=True)
